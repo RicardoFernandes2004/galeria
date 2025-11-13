@@ -1,0 +1,33 @@
+name: Node.js API CI
+
+on:
+  push:
+    branches: ["main","dev"]
+    paths:
+      - "galeria/**"
+      - ".github/workflows/node-api-ci.yml"
+  pull_request:
+    branches: ["main","dev"]
+    paths:
+      - "stream-verse-api/**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x, 24.x]
+    defaults:
+      run:
+        working-directory: galeria
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: galeria/package-lock.json
+      - run: npm ci
+      - run: npm run build --if-present
+      - run: npm test
