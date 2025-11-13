@@ -1,0 +1,71 @@
+name: Auto PR dev → main
+
+on:
+  schedule:
+    - cron: "0 5 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: auto-pr-dev-main
+  cancel-in-progress: false
+
+jobs:
+  open_pr_if_changes:
+    runs-on: ubuntu-latest
+    env:
+      BASE: main
+      HEAD: dev
+      TITLE: "Commit para prod diário"
+      BODY: "PR automática: dev → main"
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Garantir refs atualizadas
+        run: |
+          git fetch origin "${BASE}:${BASE}" || true
+          git fetch origin "${HEAD}:${HEAD}" || true
+
+      - name: Pular se já existe PR aberta de dev → main
+        id: check_open_pr
+        run: |
+          OPEN_PR=$(gh pr list --base "$BASE" --head "$HEAD" --state open --json number --jq '.[0].number' || true)
+          if [ -n "$OPEN_PR" ]; then
+            echo "Já existe PR #$OPEN_PR de $HEAD → $BASE. Encerrando."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pular se não há diferenças entre branches
+        if: steps.check_open_pr.outputs.skip != 'true'
+        id: diff_check
+        run: |
+          # Compara estado remoto (o fetch anterior mapeou para branches locais iguais)
+          if git diff --quiet "$BASE..$HEAD"; then
+            echo "Sem mudanças entre $HEAD e $BASE. Nada a fazer."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Criar PR com gh
+        if: steps.diff_check.outputs.skip != 'true' && steps.check_open_pr.outputs.skip != 'true'
+        id: create_pr
+        run: |
+          gh pr create \
+            --base "$BASE" \
+            --head "$HEAD" \
+            --title "$TITLE" \
+            --body "$BODY" || true
+
+          
+          PR_NUMBER=$(gh pr list --base "$BASE" --head "$HEAD" --state open --json number --jq '.[0].number')
+          PR_URL=$(gh pr view "$PR_NUMBER" --json url --jq .url)
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "Aberta/confirmada PR #$PR_NUMBER: $PR_URL"
